@@ -1,50 +1,47 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <errno.h>
+#include <error.h>
 
 #define BUFFERSIZE 100
 
-void printfile(char *filename);
-
+// README said only program in main...
 int main (int argc, char *argv[]) {
 
+  FILE *file;              // Pointer to the file stream
+  char *buffer, *filename; // Buffer where to read, file name
+  int bytesread;           // Number of bytes read on each loop
+
+  // If no arguments terminate program
   if (argc == 1) {
-    exit(0);
+    return(0);
   }
 
+  // Loop over all given files
   for (int i = 1; i < argc; i++) {
-    printfile(argv[i]);
+    filename = argv[i];
+
+    // Error handling
+    if (!(file = fopen(filename, "r"))) {
+      printf("UVacat: no puedo abrir fichero\n");
+      exit(1);
+    }
+
+    if (!(buffer = (char *) malloc(BUFFERSIZE + 1))) {
+      printf("Malloc: no puedo alojar memoria\n");
+      exit(1);
+    }
+
+    // Read until file end (ie, bytesread == 0)
+    while ((bytesread = fread(buffer, 1, BUFFERSIZE, file))) {
+      buffer[bytesread] = '\0'; // We need to ensure string terminator at the end 
+      printf("%s", buffer);
+    }
+
+    fclose(file);
   }
-
-  return 0;
-}
-
-void printfile(char *filename) {
-
-  FILE *file;
-  char *buffer;
-  int bytesread;
-  
-  if (!(file = fopen(filename, "r"))) {
-    perror(strerror(ENOENT));
-    exit(1);
-  }
-
-  if (!(buffer = (char *) malloc(BUFFERSIZE + 1))) {
-    perror("Malloc: Could not allocate memory");
-    exit(1);
-  }
-
-  while ((bytesread = fread(buffer, 1, BUFFERSIZE, file))) {
-    buffer[bytesread] = '\0';
-    printf("%s", buffer);
-  }
-
-  printf("\n");
 
   free(buffer);
-  fclose(file);
 
-  return;
+  return 0;
 }
