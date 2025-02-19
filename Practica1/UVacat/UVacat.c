@@ -10,11 +10,10 @@ int main (int argc, char *argv[]) {
 
   FILE *file;              // Pointer to the file stream
   char *buffer, *filename; // Buffer where to read, file name
-  int bytesread;           // Number of bytes read on each loop
 
   // If no arguments terminate program
   if (argc == 1) {
-    return(0);
+    return 0;
   }
 
   // Loop over all given files
@@ -27,14 +26,13 @@ int main (int argc, char *argv[]) {
       exit(1);
     }
 
-    if (!(buffer = (char *) malloc(BUFFERSIZE + 1))) {
+    if (!(buffer = (char *) malloc(BUFFERSIZE))) {
       printf("Malloc: no puedo alojar memoria\n");
       exit(1);
     }
 
-    // Read until file end (ie, bytesread == 0)
-    while ((bytesread = fread(buffer, 1, BUFFERSIZE, file))) {
-      buffer[bytesread] = '\0'; // We need to ensure string terminator at the end 
+    // Read until file end (ie, buffer == NULL)
+    while ((fgets(buffer, BUFFERSIZE, file))) {
       printf("%s", buffer);
     }
 
