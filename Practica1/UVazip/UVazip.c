@@ -4,7 +4,7 @@
 
 void writecompressed(int, char, FILE *);
 FILE *openfile(char *);
-void compressfile(char *);
+void compressfiles(char **);
 
 int
 main (int argc, char *argv[]) {
@@ -14,8 +14,7 @@ main (int argc, char *argv[]) {
     return 1;
   }
 
-  for (int i = 1; i < argc; i++)
-    compressfile(argv[i]);
+  compressfiles(argv + 1);
 
   return 0;
 }
@@ -43,32 +42,41 @@ FILE
 }
 
 void
-compressfile (char *filename) {
+compressfiles (char **filenames) {
 
   int number = 0;
   char character, prev;
-  FILE *file;
-  bool notend;
+  FILE *file, *fileaux;
+  bool endfile;
 
-  file = openfile(filename);
-  notend = fread(&character, 1, 1, file);
+  file = openfile(*filenames);
+  endfile = !fread(&character, 1, 1, file);
   prev = character;
   
-  while (notend) {
-      number++;
+  while (*filenames) {
 
-      if (character != prev) {
-	writecompressed(number, prev, stdout);
-	number = 0;
+    number++;
+
+    if (character != prev) {
+      writecompressed(number, prev, stdout);
+      number = 0;
+    }
+
+    prev = character;
+    endfile = !fread(&character, 1, 1, file);
+
+    if (endfile) {
+      fileaux = file;
+      fclose(fileaux);
+      filenames++;
+      if (*filenames) {
+        file = openfile(*filenames);
+        endfile = !fread(&character, 1, 1, file);
       }
-
-      prev = character;
-      notend = fread(&character, 1, 1, file);
+    }
   }
 
   writecompressed(number, prev, stdout);
-
-  fclose(file);
   
   return;
 }
