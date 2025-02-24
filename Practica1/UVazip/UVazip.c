@@ -46,34 +46,26 @@ compressfiles (char **filenames) {
 
   int number = 0;
   char character, prev;
-  FILE *file, *fileaux;
-  bool endfile;
+  FILE *file;
+  bool notended;
 
-  file = openfile(*filenames);
-  endfile = !fread(&character, 1, 1, file);
-  prev = character;
-  
   while (*filenames) {
+    file = openfile(*(filenames++));
+    notended = fread(&character, 1, 1, file);
+    
+    while (notended) {
+      number++;
+      
+      prev = character;
+      notended = fread(&character, 1, 1, file);
 
-    number++;
-
-    if (character != prev) {
-      writecompressed(number, prev, stdout);
-      number = 0;
-    }
-
-    prev = character;
-    endfile = !fread(&character, 1, 1, file);
-
-    if (endfile) {
-      fileaux = file;
-      fclose(fileaux);
-      filenames++;
-      if (*filenames) {
-        file = openfile(*filenames);
-        endfile = !fread(&character, 1, 1, file);
+      if (prev != character) {
+	      writecompressed(number, prev, stdout);
+	      number = 0;
       }
     }
+
+    fclose(file);
   }
 
   writecompressed(number, prev, stdout);
