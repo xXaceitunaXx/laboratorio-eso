@@ -39,7 +39,8 @@ FILE *INPUT; // stream where to get command inputs
 
 FILE *openfile (char *);
 void startsh ();
-char **createargv (char *); // TODO
+char *clearwhites(char *);
+char **createargv (char *);
 process_t *parseprcss (char *);
 int execprcss (process_t *);
 
@@ -76,39 +77,77 @@ FILE
   return file;
 }
 
+char
+*clearwhites (char *line) {
+  while (*line == ' ' || *line == '\t')
+    line++;
+
+  return line;
+}
 
 /*
-  TODO
+  TODO **createargv (char *arguments)
+  parse all arguments into {char *, char *, ..., NULL} array
 */
 char
 **createargv (char *arguments) {
-  fprintf(stderr, "NOT IMPLEMENTED YET\n");
 
-  return NULL;
+  char **argv = NULL;
+  char *head = arguments;
+  size_t argc = 0;
+  
+  if (!arguments)
+    return argv;
+  
+  while(arguments) {
+    arguments = clearwhites(arguments);
+    strsep(&arguments, SEPRCHR);
+    argc++;
+  } // need linked list or I loose all the references, strsep inserts '\0'
+
+  if (!(argv = (char **) malloc(sizeof(char **) * argc))) {
+    perror("malloc");
+    exit(1);
+  }
+
+  // go through arguments list freeing nodes while storing the pointers 
+
+  printf("argc: %d for args: %p\n", (int) argc, head);
+  
+  fprintf(stderr, "NOT IMPLEMENTED YET\n");
+  return argv;
 }
 
 process_t
 *parseprcss (char *cmdline) {
 
-  char *command, *arguments;
+  char *command;
   char **argv;
   process_t *p;
+
+  cmdline = clearwhites(cmdline); // removes spaces (SEPRCHR, \t, ...) before command word 
+  command = strsep(&cmdline, SEPRCHR); // separates command from all args
+  argv = createargv(cmdline); // arguments on *argv[] style 
   
-  command = cmdline;
-  arguments = strsep(&cmdline, SEPRCHR);
-  argv = (command == arguments ? NULL : createargv(arguments));
-  
-  p = (process_t *)  malloc(sizeof(process_t));
+  if (!(p = (process_t *) malloc(sizeof(process_t)))) {
+    perror("malloc");
+    exit(1);
+  }
+
+  /* --- this zone must take on acount on the future the parallelism --- */
+
   p->command = command;
   p->arguments = argv;
   p->next = NULL;
-
-  return p;
+  
+  /* ------------------------------------------------------------------- */
+  
+  return p; // process linked list ready to execute via execprcss
 }
 
 /*
   TODO execprcss (process *)
-  Must find a way to print result in the file, maybe it's easy
+  Must find a way to print result in the file, maybe it's easy?
 */
 int
 execprcss (process_t *p) {
@@ -117,36 +156,41 @@ execprcss (process_t *p) {
   pid_t pid;
   child_t *head, *c;
 
-  head = c = (child_t *) malloc(sizeof(child_t));
+  if (!(head = c = (child_t *) malloc(sizeof(child_t)))) {
+    perror("malloc");
+    exit(1);
+  }
 
   while(p) {
-    pid = fork();
+    pid = fork(); // start new child process
 
     switch (pid) {
-    case -1:
+    case -1: // forking error case
       perror("fork");
       exit(1);
-    case 0:
+    case 0: // child code
       execvp(p->command, p->arguments);
       exit(0);
-    default:
+    default: // parent code
       prev = p;
       p = p->next;
       free(prev);
-      c->pid = pid;
+      
+      c->pid = pid; // all process should be launched until waiting, pids are stored
       if (p)
 	c->next = (child_t *) malloc(sizeof(child_t));
       c = c->next;
     }
   }
 
-  while(head) {
+  while(head) { // we loop childs list for waiting
     waitpid(head->pid, &(head->status), 0);
     c = head;
     head = head->next;
     free(c);
   }
-    
+
+  // the moment code reaches this return zone, asserts all processes have ended 
   return 0;
 }
 
@@ -158,10 +202,18 @@ startsh () {
   char *line = NULL;
   process_t *prcsslist;
   
-  while ((nread = getline(&line, &n, INPUT)) != -1) {
-    prcsslist = parseprcss(strsep(&line, "\n"));
-    execprcss(prcsslist);
+  while (true) {
+    if (INTERACTIVE) // when interactive mode activated, prompt gets printed
+      printf(PROMPT);
+
+    if ((nread = getline(&line, &n, INPUT)) == -1)
+      return; // read untill EOF (interactive mode don't reach EOF, run exit)
+    
+    prcsslist = parseprcss(strsep(&line, "\n")); // parse command without '\n'
+    execprcss(prcsslist); // exec all processes in cmdline (parallelism implemented)
   }
+
+  free(line);
 
   return;
 }
