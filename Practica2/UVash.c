@@ -15,7 +15,13 @@
 /* ################################# */
 /* Structures */
 
-// Linked list of processes to run
+// linked list of process arguments (another aproach could be coping in memory the whole argument)
+typedef struct argument {
+  char *pstring; // pointer to the argument in memory
+  struct argument *next;
+} argument_t;
+
+// linked list of processes to run
 typedef struct process {
   char *command; // command name to execute, can't be NULL
   char **arguments; // arguments for the command, could be NULL, last element should be NULL
@@ -23,9 +29,10 @@ typedef struct process {
   struct process *next; // when PARLCHR present, next parallel command referenced
 } process_t;
 
+// linked list referencing all the processes launched
 typedef struct child {
-  pid_t pid;
-  int status;
+  pid_t pid; // pid of the child process
+  int status; // status
   struct child *next;
 } child_t;
 
@@ -93,26 +100,48 @@ char
 **createargv (char *arguments) {
 
   char **argv = NULL;
-  char *head = arguments;
   size_t argc = 0;
+  argument_t *refs, *rfi;
   
   if (!arguments)
     return argv;
+
+  if (!(refs = rfi = (argument_t *) malloc(sizeof(argument_t)))) {
+      perror("malloc");
+      exit(1);
+    }
   
-  while(arguments) {
+  while(arguments) {  
     arguments = clearwhites(arguments);
-    strsep(&arguments, SEPRCHR);
+    rfi->pstring = strsep(&arguments, SEPRCHR);
     argc++;
+
+    if (arguments) {
+      if (!(rfi->next = (argument_t *) malloc(sizeof(argument_t)))) {
+	perror("malloc");
+	exit(1);
+      }
+      rfi = rfi->next;
+    }
   } // need linked list or I loose all the references, strsep inserts '\0'
 
-  if (!(argv = (char **) malloc(sizeof(char **) * argc))) {
+  if (!(argv = (char **) malloc(sizeof(char **) * (argc + 1)))) {
     perror("malloc");
     exit(1);
   }
 
   // go through arguments list freeing nodes while storing the pointers 
 
-  printf("argc: %d for args: %p\n", (int) argc, head);
+  printf("argc: %d for args: %p\n", (int) argc, refs);
+
+  for (size_t i = 0; i < argc; i++) {
+    argv[i] = refs->pstring;
+    rfi = refs;
+    refs = refs->next;
+    free(rfi);
+  }
+
+  argv[argc] = NULL;
   
   fprintf(stderr, "NOT IMPLEMENTED YET\n");
   return argv;
@@ -126,8 +155,8 @@ process_t
   process_t *p;
 
   cmdline = clearwhites(cmdline); // removes spaces (SEPRCHR, \t, ...) before command word 
+  argv = createargv(cmdline); // arguments on *argv[] style
   command = strsep(&cmdline, SEPRCHR); // separates command from all args
-  argv = createargv(cmdline); // arguments on *argv[] style 
   
   if (!(p = (process_t *) malloc(sizeof(process_t)))) {
     perror("malloc");
@@ -208,8 +237,9 @@ startsh () {
 
     if ((nread = getline(&line, &n, INPUT)) == -1)
       return; // read untill EOF (interactive mode don't reach EOF, run exit)
-    
-    prcsslist = parseprcss(strsep(&line, "\n")); // parse command without '\n'
+
+    line = strsep(&line, "\n"); // deletes '\n' if found (in batchfiles last instruction could have no '\n'
+    prcsslist = parseprcss(line);
     execprcss(prcsslist); // exec all processes in cmdline (parallelism implemented)
   }
 
