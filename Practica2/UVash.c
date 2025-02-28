@@ -5,7 +5,7 @@
 #include <string.h>
 #include <sys/wait.h>
 
-#define ERRUVASH "An error has ocurred\n"
+#define ERRUVASH "An error has occurred\n"
 #define PROMPT "UVash> "
 #define EXIT "exit"
 #define SEPRCHR " "
@@ -49,9 +49,11 @@ void startsh ();
 char *clearwhites(char *);
 char **createargv (char *);
 process_t *parseprcss (char *);
+bool builtin (process_t *);
 int execprcss (process_t *);
 
 /* ################################# */
+
 
 int
 main (int argc, char *argv[]) {
@@ -61,13 +63,15 @@ main (int argc, char *argv[]) {
     return 1;
   }
 
-  INTERACTIVE = (argc == 1); // if no file provided, interactive mode on
+  // if no file provided, interactive mode on
+  INTERACTIVE = (argc == 1);
   INPUT = INTERACTIVE ? stdin : openfile(argv[1]);
 
   startsh();
   
   return 0;
 }
+
 
 /* ################################# */
 
@@ -132,8 +136,6 @@ char
 
   // go through arguments list freeing nodes while storing the pointers 
 
-  printf("argc: %d for args: %p\n", (int) argc, refs);
-
   for (size_t i = 0; i < argc; i++) {
     argv[i] = refs->pstring;
     rfi = refs;
@@ -143,7 +145,6 @@ char
 
   argv[argc] = NULL;
   
-  fprintf(stderr, "NOT IMPLEMENTED YET\n");
   return argv;
 }
 
@@ -174,6 +175,32 @@ process_t
   return p; // process linked list ready to execute via execprcss
 }
 
+void
+owncd (char *arguments[]) {
+  if (!arguments[1] || arguments[2]) {
+    fprintf(stderr, ERRUVASH);
+    return;
+  }
+
+  chdir(*(arguments + 1));
+
+  return;
+}
+
+bool
+builtin (process_t *p) {
+
+  if (!strcmp("exit", p->command))
+    exit(0);
+  
+  if (!strcmp("cd", p->command)) {
+    owncd(p->arguments);
+    return true;
+  }
+  
+  return false;
+}
+
 /*
   TODO execprcss (process *)
   Must find a way to print result in the file, maybe it's easy?
@@ -190,26 +217,29 @@ execprcss (process_t *p) {
     exit(1);
   }
 
-  while(p) {
-    pid = fork(); // start new child process
-
-    switch (pid) {
-    case -1: // forking error case
-      perror("fork");
-      exit(1);
-    case 0: // child code
-      execvp(p->command, p->arguments);
-      exit(0);
-    default: // parent code
-      prev = p;
-      p = p->next;
-      free(prev);
-      
-      c->pid = pid; // all process should be launched until waiting, pids are stored
-      if (p)
-	c->next = (child_t *) malloc(sizeof(child_t));
-      c = c->next;
+  while (p) {
+    
+    if (!builtin(p)) {
+      pid = fork(); // start new child process
+      switch (pid) {
+      case -1: // forking error case
+	perror("fork");
+	exit(1);
+      case 0: // child code
+	execvp(p->command, p->arguments);
+	fflush(stdout);
+	exit(0);
+      } // parent code
     }
+    
+    prev = p;
+    p = p->next;
+    free(prev);
+      
+    c->pid = pid; // all process should be launched until waiting, pids are stored
+    if (p)
+      c->next = (child_t *) malloc(sizeof(child_t));
+    c = c->next;
   }
 
   while(head) { // we loop childs list for waiting
