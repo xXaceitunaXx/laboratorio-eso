@@ -46,14 +46,14 @@ FILE *INPUT; // stream where to get command inputs
 
 FILE *openfile (char *);
 void startsh ();
-char *clearwhites(char *);
+void *clearprcss (process_t *);
+char *clearwhites (char *);
 char **createargv (char *);
 process_t *parseprcss (char *);
 bool builtin (process_t *);
-int execprcss (process_t *);
+void execprcss (process_t *);
 
 /* ################################# */
-
 
 int
 main (int argc, char *argv[]) {
@@ -71,7 +71,6 @@ main (int argc, char *argv[]) {
   
   return 0;
 }
-
 
 /* ################################# */
 
@@ -91,7 +90,7 @@ FILE
 char
 *clearwhites (char *line) {
 
-  if (!line)
+  if (!line || !*line)
     return NULL;
 
   while (*line == ' ' || *line == '\t')
@@ -103,10 +102,23 @@ char
   return line;
 }
 
-/*
-  TODO **createargv (char *arguments)
-  parse all arguments into {char *, char *, ..., NULL} array
-*/
+void
+*clearprcss (process_t *head) {
+
+  process_t *ptr;
+
+  if (!head)
+    return head;
+
+  while(head) {
+    ptr = head;
+    head = head->next;
+    free(ptr);
+  }
+
+  return head;
+}
+
 char
 **createargv (char *arguments) {
 
@@ -160,15 +172,19 @@ process_t
   char *command;
   char **argv;
   process_t *p, *head;
+
+  if (*cmdline == '&') {
+    fprintf(stderr, ERRUVASH);
+    return NULL;
+  }
   
   if (!(head = p = (process_t *) malloc(sizeof(process_t)))) {
     perror("malloc");
     exit(1);
   }
-  
+
   while ((command = strsep(&cmdline, PARLCHR))) {
-  
-    command = clearwhites(command); // removes spaces (SEPRCHR, \t, ...) before command word 
+
     argv = createargv(command); // arguments on *argv[] style
     command = strsep(&command, SEPRCHR); // separates command from all args
 
@@ -176,13 +192,13 @@ process_t
     p->arguments = argv;
     p->next = NULL;
 
-    if (cmdline) {
+    if ((cmdline = clearwhites(cmdline))) {
       if (!(p->next = (process_t *) malloc(sizeof(process_t)))) {
 	perror("malloc");
 	exit(1);
       }
     }
-    
+
     p = p->next;
   }
   /* ------------------------------------------------------------------- */
@@ -224,7 +240,7 @@ builtin (process_t *p) {
   TODO execprcss (process *)
   Must find a way to print result in the file, maybe it's easy?
 */
-int
+void
 execprcss (process_t *p) {
 
   process_t *prev;
@@ -236,16 +252,17 @@ execprcss (process_t *p) {
     exit(1);
   }
 
-  while (p) {
+  prev = p;
+  while (prev) {
     
-    if (!builtin(p)) {
+    if (!builtin(prev)) {
       pid = fork(); // start new child process
       switch (pid) {
       case -1: // forking error case
 	perror("fork");
 	exit(1);
       case 0: // child code
-	if (execvp(p->command, p->arguments))
+	if (execvp(prev->command, prev->arguments))
 	  fprintf(stderr, ERRUVASH);
 	
 	fflush(stdout);
@@ -254,12 +271,10 @@ execprcss (process_t *p) {
       } // parent code
     }
     
-    prev = p;
-    p = p->next;
-    free(prev);
+    prev = prev->next;
       
     c->pid = pid; // all process should be launched until waiting, pids are stored
-    if (p)
+    if (prev)
       c->next = (child_t *) malloc(sizeof(child_t));
     c = c->next;
   }
@@ -271,18 +286,20 @@ execprcss (process_t *p) {
     free(c);
   }
 
+  clearprcss(p);
+  
   // the moment code reaches this return zone, asserts all processes have ended 
-  return 0;
+  return;
 }
 
 void
 startsh () {
-  
+
   int nread;
   size_t n = 0;
-  char *line = NULL;
-  process_t *prcsslist;
-  
+  char *line = NULL, *ptr;
+  process_t *prcsslist = NULL;
+
   while (true) {
     if (INTERACTIVE) // when interactive mode activated, prompt gets printed
       printf(PROMPT);
@@ -290,15 +307,17 @@ startsh () {
     if ((nread = getline(&line, &n, INPUT)) == -1)
       return; // read untill EOF (interactive mode don't reach EOF, run exit)
 
+    ptr = line;
     line = strsep(&line, "\n"); // deletes '\n' if found (in batchfiles last instruction could have no '\n'
 
-    if (*line) {
+    if ((line = clearwhites(line)))
       prcsslist = parseprcss(line);
+
+    if (prcsslist)
       execprcss(prcsslist); // exec all processes in cmdline (parallelism implemented)
-    }
   }
 
-  free(line);
+  free(ptr);
 
   return;
 }
