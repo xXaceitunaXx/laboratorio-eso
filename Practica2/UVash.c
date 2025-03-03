@@ -10,7 +10,7 @@
 #define EXIT "exit"
 #define SEPRCHR " "
 #define REDRCHR '>'
-#define PARLCHR '&'
+#define PARLCHR "&"
 
 /* ################################# */
 /* Structures */
@@ -90,9 +90,16 @@ FILE
 
 char
 *clearwhites (char *line) {
+
+  if (!line)
+    return NULL;
+
   while (*line == ' ' || *line == '\t')
     line++;
 
+  if (!*line)
+    return NULL;
+  
   return line;
 }
 
@@ -115,16 +122,16 @@ char
       exit(1);
     }
   
-  while(arguments) {  
-    arguments = clearwhites(arguments);
+  while (arguments) {
     rfi->pstring = strsep(&arguments, SEPRCHR);
     argc++;
 
-    if (arguments) {
+    if ((arguments = clearwhites(arguments))) {
       if (!(rfi->next = (argument_t *) malloc(sizeof(argument_t)))) {
 	perror("malloc");
 	exit(1);
       }
+      
       rfi = rfi->next;
     }
   } // need linked list or I loose all the references, strsep inserts '\0'
@@ -134,8 +141,7 @@ char
     exit(1);
   }
 
-  // go through arguments list freeing nodes while storing the pointers 
-
+  // go through arguments list freeing nodes while storing the pointers
   for (size_t i = 0; i < argc; i++) {
     argv[i] = refs->pstring;
     rfi = refs;
@@ -153,26 +159,35 @@ process_t
 
   char *command;
   char **argv;
-  process_t *p;
-
-  cmdline = clearwhites(cmdline); // removes spaces (SEPRCHR, \t, ...) before command word 
-  argv = createargv(cmdline); // arguments on *argv[] style
-  command = strsep(&cmdline, SEPRCHR); // separates command from all args
+  process_t *p, *head;
   
-  if (!(p = (process_t *) malloc(sizeof(process_t)))) {
+  if (!(head = p = (process_t *) malloc(sizeof(process_t)))) {
     perror("malloc");
     exit(1);
   }
-
-  /* --- this zone must take on acount on the future the parallelism --- */
-
-  p->command = command;
-  p->arguments = argv;
-  p->next = NULL;
   
+  while ((command = strsep(&cmdline, PARLCHR))) {
+  
+    command = clearwhites(command); // removes spaces (SEPRCHR, \t, ...) before command word 
+    argv = createargv(command); // arguments on *argv[] style
+    command = strsep(&command, SEPRCHR); // separates command from all args
+
+    p->command = command;
+    p->arguments = argv;
+    p->next = NULL;
+
+    if (cmdline) {
+      if (!(p->next = (process_t *) malloc(sizeof(process_t)))) {
+	perror("malloc");
+	exit(1);
+      }
+    }
+    
+    p = p->next;
+  }
   /* ------------------------------------------------------------------- */
   
-  return p; // process linked list ready to execute via execprcss
+  return head; // process linked list ready to execute via execprcss
 }
 
 void
@@ -189,9 +204,13 @@ owncd (char *arguments[]) {
 
 bool
 builtin (process_t *p) {
-
-  if (!strcmp("exit", p->command))
+  
+  if (!strcmp(EXIT, p->command)) {
+    if (p->arguments[1])
+      fprintf(stderr, ERRUVASH);
+    
     exit(0);
+  }
   
   if (!strcmp("cd", p->command)) {
     owncd(p->arguments);
@@ -226,8 +245,11 @@ execprcss (process_t *p) {
 	perror("fork");
 	exit(1);
       case 0: // child code
-	execvp(p->command, p->arguments);
+	if (execvp(p->command, p->arguments))
+	  fprintf(stderr, ERRUVASH);
+	
 	fflush(stdout);
+	fflush(stderr);
 	exit(0);
       } // parent code
     }
@@ -269,8 +291,11 @@ startsh () {
       return; // read untill EOF (interactive mode don't reach EOF, run exit)
 
     line = strsep(&line, "\n"); // deletes '\n' if found (in batchfiles last instruction could have no '\n'
-    prcsslist = parseprcss(line);
-    execprcss(prcsslist); // exec all processes in cmdline (parallelism implemented)
+
+    if (*line) {
+      prcsslist = parseprcss(line);
+      execprcss(prcsslist); // exec all processes in cmdline (parallelism implemented)
+    }
   }
 
   free(line);
