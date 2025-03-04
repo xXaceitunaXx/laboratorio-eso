@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdbool.h>
 #include <stdlib.h>
+#include <fcntl.h>
 #include <unistd.h>
 #include <string.h>
 #include <sys/wait.h>
@@ -9,7 +10,7 @@
 #define PROMPT "UVash> "
 #define EXIT "exit"
 #define SEPRCHR " "
-#define REDRCHR '>'
+#define REDRCHR ">"
 #define PARLCHR "&"
 
 /* ################################# */
@@ -45,13 +46,14 @@ FILE *INPUT; // stream where to get command inputs
 /* ################################# */
 
 FILE *openfile (char *);
-void startsh ();
 void *clearprcss (process_t *);
 char *clearwhites (char *);
 char **createargv (char *);
 process_t *parseprcss (char *);
 bool builtin (process_t *);
+int redirection (char *);
 void execprcss (process_t *);
+void startsh ();
 
 /* ################################# */
 
@@ -201,6 +203,7 @@ process_t
 
     p = p->next;
   }
+  
   /* ------------------------------------------------------------------- */
   
   return head; // process linked list ready to execute via execprcss
@@ -236,6 +239,24 @@ builtin (process_t *p) {
   return false;
 }
 
+int
+redirection (char *filename) {
+
+  int output;
+  
+  if ((output = open(filename, O_WRONLY | O_CREAT | O_TRUNC, 0644)) == -1) {
+    perror(filename);
+    exit(1);
+  }
+
+  if (dup2(output, 1) == -1) {
+    perror("dup2");
+    exit(1);
+  }
+
+  return output;
+}
+
 /*
   TODO execprcss (process *)
   Must find a way to print result in the file, maybe it's easy?
@@ -246,7 +267,8 @@ execprcss (process_t *p) {
   process_t *prev;
   pid_t pid;
   child_t *head, *c;
-
+  int output, restore;
+  
   if (!(head = c = (child_t *) malloc(sizeof(child_t)))) {
     perror("malloc");
     exit(1);
@@ -262,11 +284,26 @@ execprcss (process_t *p) {
 	perror("fork");
 	exit(1);
       case 0: // child code
+	if (prev->output) {
+	  if ((restore = dup(1)) == -1) {
+	    perror("dup");
+	    exit(1);
+	  }
+	  
+	  output = redirection(prev->output);
+	}
+	
 	if (execvp(prev->command, prev->arguments))
 	  fprintf(stderr, ERRUVASH);
 	
 	fflush(stdout);
 	fflush(stderr);
+
+	if (prev->output) {
+	  close(output);
+	  dup2(restore, 1);
+	}
+	
 	exit(0);
       } // parent code
     }
