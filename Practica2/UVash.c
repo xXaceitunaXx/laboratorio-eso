@@ -171,7 +171,7 @@ char
 process_t
 *parseprcss (char *cmdline) {
 
-  char *command;
+  char *command, *output;
   char **argv;
   process_t *p, *head;
 
@@ -187,6 +187,25 @@ process_t
 
   while ((command = strsep(&cmdline, PARLCHR))) {
 
+    output = command;
+    strsep(&output, REDRCHR);
+
+    if (command == output) {
+      fprintf(stderr, ERRUVASH);
+      return clearprcss(head);
+    }
+
+    if (output) {
+      output = clearwhites(output);
+      p->output = strsep(&output, SEPRCHR);
+
+      if (p->output == output || clearwhites(output)) {
+	fprintf(stderr, ERRUVASH);
+	return clearprcss(head);
+      }
+    } else
+      p->output = NULL;
+    
     argv = createargv(command); // arguments on *argv[] style
     command = strsep(&command, SEPRCHR); // separates command from all args
 
