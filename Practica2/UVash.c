@@ -37,14 +37,26 @@ typedef struct child {
   struct child *next;
 } child_t;
 
+// pointer pool structure
+typedef struct pointer {
+  void *ptr;
+  struct pointer *next;
+} pointer_t;
+
 /* ################################# */
 /* Usefull global variables */
 
 bool INTERACTIVE; // enables interactive mode (program to print PROMPT, sets INPUT to stdin) 
 FILE *INPUT; // stream where to get command inputs
+pointer_t *ptrpool;
 
 /* ################################# */
 
+void freeall ();
+void addptr (void *);
+void *allocate (size_t);
+void removeptr (void *);
+void secexit (int);
 FILE *openfile (char *);
 void *clearprcss (process_t *);
 char *clearwhites (char *);
@@ -57,24 +69,101 @@ void startsh ();
 
 /* ################################# */
 
-int
-main (int argc, char *argv[]) {
+void
+freeall () {
+  pointer_t *aux;
 
-  if (argc > 2) {
-    fprintf(stderr, ERRUVASH);
-    return 1;
+  while (ptrpool) {
+    free(ptrpool->ptr);
+    aux = ptrpool;
+    ptrpool = ptrpool->next;
+    free(aux);
   }
-
-  // if no file provided, interactive mode on
-  INTERACTIVE = (argc == 1);
-  INPUT = INTERACTIVE ? stdin : openfile(argv[1]);
-
-  startsh();
-  
-  return 0;
 }
 
-/* ################################# */
+void
+addptr (void *ptr) {
+
+  pointer_t *new;
+
+  if (!(new = (pointer_t *) malloc(sizeof(pointer_t)))) {
+    perror("malloc");
+    exit(1);
+  }
+
+  new->ptr = ptr;
+  new->next = ptrpool;
+  ptrpool = new;
+}
+
+void
+*allocate (size_t n) {
+
+  void *ptr;
+
+  if (!(ptr = malloc(n))) {
+    perror("malloc");
+    exit(1);
+  }
+
+  addptr(ptr);
+  return ptr;
+}
+
+void
+removeptr (void *ptr) {
+
+  pointer_t *aux, *itr;
+
+  if (!ptrpool) {
+    fprintf(stderr,  "removeptr: no memory allocated");
+    exit(1);
+  }
+
+  // ---- initial case ----
+
+  if (ptrpool->ptr == ptr) {
+    free(ptr);
+    aux = ptrpool;
+    ptrpool = ptrpool->next;
+    free(aux);
+    return;
+  }
+
+  // ---- general case ----
+
+  itr = ptrpool->next;
+  aux = ptrpool;
+  
+  while (itr) {
+    if (itr->ptr == ptr) {
+      free(ptr);
+      aux->next = itr->next;
+      free(itr);
+      return;
+    }
+    aux = itr;
+    itr = itr->next;
+  }
+
+  fprintf(stderr, "removeptr: ptr not allocated");
+  exit(1);
+}
+
+void
+secexit (int errorc) {
+  freeall();
+  exit(errorc);
+}
+  
+
+// ---- gcc preprocessor \| magik |/ :) ---- {
+
+#define malloc(n) allocate((n))
+#define free(ptr) removeptr((ptr))
+#define exit(errorc) secexit((errorc))
+
+// } ----------------------------------------- //
 
 FILE
 *openfile (char *filename) {
@@ -114,6 +203,8 @@ void
 
   while(head) {
     ptr = head;
+    if (head->arguments)
+      free(ptr->arguments);
     head = head->next;
     free(ptr);
   }
@@ -131,29 +222,19 @@ char
   if (!arguments)
     return argv;
 
-  if (!(refs = rfi = (argument_t *) malloc(sizeof(argument_t)))) {
-      perror("malloc");
-      exit(1);
-    }
+  refs = rfi = (argument_t *) malloc(sizeof(argument_t));
   
   while (arguments) {
     rfi->pstring = strsep(&arguments, SEPRCHR);
     argc++;
 
     if ((arguments = clearwhites(arguments))) {
-      if (!(rfi->next = (argument_t *) malloc(sizeof(argument_t)))) {
-	perror("malloc");
-	exit(1);
-      }
-      
+      rfi->next = (argument_t *) malloc(sizeof(argument_t));
       rfi = rfi->next;
     }
   } // need linked list or I loose all the references, strsep inserts '\0'
 
-  if (!(argv = (char **) malloc(sizeof(char **) * (argc + 1)))) {
-    perror("malloc");
-    exit(1);
-  }
+  argv = (char **) malloc(sizeof(char **) * (argc + 1));
 
   // go through arguments list freeing nodes while storing the pointers
   for (size_t i = 0; i < argc; i++) {
@@ -180,10 +261,7 @@ process_t
     return NULL;
   }
   
-  if (!(head = p = (process_t *) malloc(sizeof(process_t)))) {
-    perror("malloc");
-    exit(1);
-  }
+  head = p = (process_t *) malloc(sizeof(process_t));
 
   while ((command = strsep(&cmdline, PARLCHR))) {
 
@@ -213,12 +291,8 @@ process_t
     p->arguments = argv;
     p->next = NULL;
 
-    if ((cmdline = clearwhites(cmdline))) {
-      if (!(p->next = (process_t *) malloc(sizeof(process_t)))) {
-	perror("malloc");
-	exit(1);
-      }
-    }
+    if ((cmdline = clearwhites(cmdline)))
+      p->next = (process_t *) malloc(sizeof(process_t));
 
     p = p->next;
   }
@@ -288,10 +362,7 @@ execprcss (process_t *p) {
   child_t *head, *c;
   int output, restore;
   
-  if (!(head = c = (child_t *) malloc(sizeof(child_t)))) {
-    perror("malloc");
-    exit(1);
-  }
+  head = c = (child_t *) malloc(sizeof(child_t));
 
   prev = p;
   while (prev) {
@@ -353,7 +424,7 @@ startsh () {
 
   int nread;
   size_t n = 0;
-  char *line = NULL, *ptr;
+  char *line = NULL, *aux;
   process_t *prcsslist = NULL;
 
   while (true) {
@@ -361,9 +432,11 @@ startsh () {
       printf(PROMPT);
 
     if ((nread = getline(&line, &n, INPUT)) == -1)
-      return; // read untill EOF (interactive mode don't reach EOF, run exit)
+      exit(0); // read untill EOF (interactive mode don't reach EOF, run exit)
 
-    ptr = line;
+    aux = line;
+    addptr(line);
+
     line = strsep(&line, "\n"); // deletes '\n' if found (in batchfiles last instruction could have no '\n'
 
     if ((line = clearwhites(line)))
@@ -371,9 +444,27 @@ startsh () {
 
     if (prcsslist)
       execprcss(prcsslist); // exec all processes in cmdline (parallelism implemented)
+
+    free(aux);
+    line = NULL;
+  }
+}
+
+/* ################################# */
+
+int
+main (int argc, char *argv[]) {
+
+  if (argc > 2) {
+    fprintf(stderr, ERRUVASH);
+    return 1;
   }
 
-  free(ptr);
+  // if no file provided, interactive mode on
+  INTERACTIVE = (argc == 1);
+  INPUT = INTERACTIVE ? stdin : openfile(argv[1]);
 
-  return;
+  startsh();
+  
+  return 0;
 }
