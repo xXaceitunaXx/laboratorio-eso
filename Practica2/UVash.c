@@ -20,24 +20,40 @@
 /* ################################# */
 /* Structures */
 
-// linked list of process arguments (another aproach could be coping in memory the whole argument)
+/**
+ *  Process arguments structure (another aproach could be coping in memory the whole argument)
+ * - char *pstring: pointer to the argument in memory
+ * - struct argument *next: next argument
+ */
 typedef struct argument {
-  char *pstring; // pointer to the argument in memory
+  char *pstring;
   struct argument *next;
 } argument_t;
 
-// linked list of processes to run
+/**
+ * "Execution block" structure wich contains all execution information from a process
+ * Consists of:
+ * - char *command: command name to execute, can't be NULL
+ * - char **arguments: arguments for the command, could be NULL, last element should be NULL
+ * - char *output: file name, if no REDRCHR on parsing default is stdout
+ * - struct process *next: when PARLCHR present, next parallel command referenced
+ */
 typedef struct process {
-  char *command; // command name to execute, can't be NULL
-  char **arguments; // arguments for the command, could be NULL, last element should be NULL
-  char *output; // file name, if no REDRCHR on parsing default is stdout
-  struct process *next; // when PARLCHR present, next parallel command referenced
+  char *command;
+  char **arguments;
+  char *output;
+  struct process *next;
 } process_t;
 
-// linked list referencing all the processes launched
+/**
+ * Child process structure, used to store pid and status of a child process
+ * - pid_t pid: pid of the child process
+ * - int status: status of the child process
+ * - struct child *next: next child process to wait
+ */
 typedef struct child {
-  pid_t pid; // pid of the child process
-  int status; // status
+  pid_t pid;
+  int status;
   struct child *next;
 } child_t;
 
@@ -178,7 +194,7 @@ process_t
   char **argv;
   process_t *p, *head;
 
-  if (*cmdline == '&') { // base case of paralellism error, "& [commands ...]""
+  if (*cmdline == '&') { // base case of paralellism error, "& [commands ...]"
     fprintf(stderr, ERRUVASH);
     return NULL;
   }
