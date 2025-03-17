@@ -7,9 +7,13 @@
 #include <sys/wait.h>
 
 #define ERRUVASH "An error has occurred\n"
+
 #define PROMPT "UVash> "
+
 #define EXIT "exit"
-#define SEPRCHR " "
+#define CD "cd"
+
+#define SEPRCHR " \t"
 #define REDRCHR ">"
 #define PARLCHR "&"
 
@@ -37,134 +41,32 @@ typedef struct child {
   struct child *next;
 } child_t;
 
-// pointer pool structure
-typedef struct pointer {
-  void *ptr;
-  struct pointer *next;
-} pointer_t;
-
 /* ################################# */
 /* Usefull global variables */
 
 bool INTERACTIVE; // enables interactive mode (program to print PROMPT, sets INPUT to stdin) 
 FILE *INPUT; // stream where to get command inputs
-pointer_t *ptrpool;
 
 /* ################################# */
 
-void freeall ();
-void addptr (void *);
-void *allocate (size_t);
-void removeptr (void *);
-void secexit (int);
 FILE *openfile (char *);
 void *clearprcss (process_t *);
 char *clearwhites (char *);
 char **createargv (char *);
 process_t *parseprcss (char *);
 bool builtin (process_t *);
-int redirection (char *);
+void redirection (char *);
 void execprcss (process_t *);
 void startsh ();
 
 /* ################################# */
-
-void
-freeall () {
-  pointer_t *aux;
-
-  while (ptrpool) {
-    free(ptrpool->ptr);
-    aux = ptrpool;
-    ptrpool = ptrpool->next;
-    free(aux);
-  }
-}
-
-void
-addptr (void *ptr) {
-
-  pointer_t *new;
-
-  if (!(new = (pointer_t *) malloc(sizeof(pointer_t)))) {
-    perror("malloc");
-    exit(1);
-  }
-
-  new->ptr = ptr;
-  new->next = ptrpool;
-  ptrpool = new;
-}
-
-void
-*allocate (size_t n) {
-
-  void *ptr;
-
-  if (!(ptr = malloc(n))) {
-    perror("malloc");
-    exit(1);
-  }
-
-  addptr(ptr);
-  return ptr;
-}
-
-void
-removeptr (void *ptr) {
-
-  pointer_t *aux, *itr;
-
-  if (!ptrpool) {
-    fprintf(stderr,  "removeptr: no memory allocated");
-    exit(1);
-  }
-
-  // ---- initial case ----
-
-  if (ptrpool->ptr == ptr) {
-    free(ptr);
-    aux = ptrpool;
-    ptrpool = ptrpool->next;
-    free(aux);
-    return;
-  }
-
-  // ---- general case ----
-
-  itr = ptrpool->next;
-  aux = ptrpool;
   
-  while (itr) {
-    if (itr->ptr == ptr) {
-      free(ptr);
-      aux->next = itr->next;
-      free(itr);
-      return;
-    }
-    aux = itr;
-    itr = itr->next;
-  }
-
-  fprintf(stderr, "removeptr: ptr not allocated");
-  exit(1);
-}
-
-void
-secexit (int errorc) {
-  freeall();
-  exit(errorc);
-}
-  
-
-// ---- gcc preprocessor \| magik |/ :) ---- {
-
-#define malloc(n) allocate((n))
-#define free(ptr) removeptr((ptr))
-#define exit(errorc) secexit((errorc))
-
-// } ----------------------------------------- //
-
+/**
+ * Utils function, opens a stream given the file name. Manages fopen errors.abort
+ * 
+ * @param filename name of the file to open
+ * @return stream to the file
+ */
 FILE
 *openfile (char *filename) {
 
@@ -178,6 +80,9 @@ FILE
   return file;
 }
 
+/**
+ * Utils function. Could be replaced with iterations of strsep, but i liked it this way
+ */
 char
 *clearwhites (char *line) {
 
@@ -193,6 +98,11 @@ char
   return line;
 }
 
+/**
+ * Safely deletes a "execution block" queue
+ * 
+ * @param head head of the queue to delete
+ */
 void
 *clearprcss (process_t *head) {
 
@@ -212,6 +122,12 @@ void
   return head;
 }
 
+/**
+ * Creates C argv like for a command. Supports indefinite arguments.
+ * 
+ * @param arguments plain text arguments
+ * @return argv like arguments
+ */
 char
 **createargv (char *arguments) {
 
@@ -219,20 +135,20 @@ char
   size_t argc = 0;
   argument_t *refs, *rfi;
   
-  if (!arguments)
+  if (!arguments) // empty command
     return argv;
 
   refs = rfi = (argument_t *) malloc(sizeof(argument_t));
   
   while (arguments) {
-    rfi->pstring = strsep(&arguments, SEPRCHR);
+    rfi->pstring = strsep(&arguments, SEPRCHR); // tokenize by " \t"
     argc++;
 
     if ((arguments = clearwhites(arguments))) {
       rfi->next = (argument_t *) malloc(sizeof(argument_t));
       rfi = rfi->next;
     }
-  } // need linked list or I loose all the references, strsep inserts '\0'
+  } // need linked list or all references get lost, strsep just inserts '\0'
 
   argv = (char **) malloc(sizeof(char **) * (argc + 1));
 
@@ -244,11 +160,17 @@ char
     free(rfi);
   }
 
-  argv[argc] = NULL;
+  argv[argc] = NULL; // asserts NULL at the end of commands
   
   return argv;
 }
 
+/**
+ * Parses the command line recived from imput. Supports indefinite commands to paralellise.
+ * 
+ * @param cmdline command line input
+ * @return an execution block queue ready for paralellism
+ */
 process_t
 *parseprcss (char *cmdline) {
 
@@ -256,19 +178,19 @@ process_t
   char **argv;
   process_t *p, *head;
 
-  if (*cmdline == '&') {
+  if (*cmdline == '&') { // base case of paralellism error, "& [commands ...]""
     fprintf(stderr, ERRUVASH);
     return NULL;
   }
   
   head = p = (process_t *) malloc(sizeof(process_t));
 
-  while ((command = strsep(&cmdline, PARLCHR))) {
+  while ((command = strsep(&cmdline, PARLCHR))) { // tokenize by &
 
     output = command;
     strsep(&output, REDRCHR);
 
-    if (command == output) {
+    if (!clearwhites(command)) {
       fprintf(stderr, ERRUVASH);
       return clearprcss(head);
     }
@@ -278,8 +200,8 @@ process_t
       p->output = strsep(&output, SEPRCHR);
 
       if (p->output == output || clearwhites(output)) {
-	fprintf(stderr, ERRUVASH);
-	return clearprcss(head);
+	      fprintf(stderr, ERRUVASH);
+	      return clearprcss(head);
       }
     } else
       p->output = NULL;
@@ -302,6 +224,11 @@ process_t
   return head; // process linked list ready to execute via execprcss
 }
 
+/**
+ * Simple cd implementation
+ * 
+ * @param arguments cd arguments
+ */
 void
 owncd (char *arguments[]) {
   if (!arguments[1] || arguments[2]) {
@@ -314,17 +241,23 @@ owncd (char *arguments[]) {
   return;
 }
 
+/**
+ * Executes, if the command in p is a builtin, the corresponding one
+ * 
+ * @param p execution block
+ * @return if the command was a builtin
+ */
 bool
 builtin (process_t *p) {
   
-  if (!strcmp(EXIT, p->command)) {
+  if (!strcmp(EXIT, p->command)) { // exit
     if (p->arguments[1])
       fprintf(stderr, ERRUVASH);
     
     exit(0);
   }
   
-  if (!strcmp("cd", p->command)) {
+  if (!strcmp(CD, p->command)) { // cd
     owncd(p->arguments);
     return true;
   }
@@ -332,7 +265,13 @@ builtin (process_t *p) {
   return false;
 }
 
-int
+/**
+ * Redirects standar output (stdout) and standar error (stderr) to a given file, if 
+ * file not exist, it gets created.
+ * 
+ * @param filename Route to the new output file
+ */
+void
 redirection (char *filename) {
 
   int output;
@@ -342,25 +281,32 @@ redirection (char *filename) {
     exit(1);
   }
 
-  if (dup2(output, 1) == -1) {
+  if (dup2(output, 1) == -1) { // 
     perror("dup2");
     exit(1);
   }
 
-  return output;
+  if (dup2(output, 2) == -1) {
+    perror("dup2");
+    exit(1);
+  }
+
+  close(output);
+  return;
 }
 
-/*
-  TODO execprcss (process *)
-  Must find a way to print result in the file, maybe it's easy?
-*/
+/**
+ * Executes an "execution block" (process_t queue). There is no need to free p, as
+ * the function handless both succes or failure memory management
+ * 
+ * @param p Pointer to the "execution block", can't be NULL
+ */
 void
 execprcss (process_t *p) {
 
   process_t *prev;
   pid_t pid;
   child_t *head, *c;
-  int output, restore;
   
   head = c = (child_t *) malloc(sizeof(child_t));
 
@@ -371,30 +317,21 @@ execprcss (process_t *p) {
       pid = fork(); // start new child process
       switch (pid) {
       case -1: // forking error case
-	perror("fork");
-	exit(1);
+	      perror("fork");
+	      exit(1);
       case 0: // child code
-	if (prev->output) {
-	  if ((restore = dup(1)) == -1) {
-	    perror("dup");
-	    exit(1);
-	  }
-	  
-	  output = redirection(prev->output);
-	}
-	
-	if (execvp(prev->command, prev->arguments))
-	  fprintf(stderr, ERRUVASH);
-	
-	fflush(stdout);
-	fflush(stderr);
+        if (prev->output) // handle file redirection
+          redirection(prev->output);
+        
+        execvp(prev->command, prev->arguments);
+        
+        // program reaches this section only if an error ocurred on execvp invocation
+        // (command to execute not found)
 
-	if (prev->output) {
-	  close(output);
-	  dup2(restore, 1);
-	}
-	
-	exit(0);
+        fprintf(stderr, ERRUVASH);
+        fflush(stderr);
+        
+        exit(0);
       } // parent code
     }
     
@@ -419,6 +356,16 @@ execprcss (process_t *p) {
   return;
 }
 
+/**
+ * Main loop of the UVa shell, asks and waits for input, then executes.
+ * To be especific, these steps are followed:
+ * 1. Gets input
+ * 2. Parses the line, creating an execution block
+ * 3. Executes the block, ensuring paralellism
+ * 
+ * In batch mode, the loop can be scaped whenever the EOF is reached, but interactive
+ * needs to invoke EXIT command (unless input is redirected on execution "./UVash < input")
+ */
 void
 startsh () {
 
@@ -432,22 +379,19 @@ startsh () {
       printf(PROMPT);
 
     if ((nread = getline(&line, &n, INPUT)) == -1)
-      exit(0); // read untill EOF (interactive mode don't reach EOF, run exit)
+      exit(0); // read untill EOF (interactive mode don't reach EOF, use exit)
 
     aux = line;
-    addptr(line);
 
     line = strsep(&line, "\n"); // deletes '\n' if found (in batchfiles last instruction could have no '\n'
 
-    if ((line = clearwhites(line)))
+    if ((line = clearwhites(line))) // only begin parsing if there is an instruction
       prcsslist = parseprcss(line);
 
     if (prcsslist)
       execprcss(prcsslist); // exec all processes in cmdline (parallelism implemented)
-
-    free(aux);
-    line = NULL;
   }
+    free(aux);
 }
 
 /* ################################# */
